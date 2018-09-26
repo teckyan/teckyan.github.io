@@ -1,0 +1,234 @@
+---
+title: "Technical report"
+author: "Teck"
+date: "March 16, 2017"
+output: html_document
+---
+
+# Does boldness vary with melanism and urbanisation in pigeons: Statistical Analysis
+### Author: Teck Lai  
+### Prepared for: Julia Holden
+### TA Advisor: Zhenhua Lin  
+### Date: 3 March 2017
+### Summary: This report gives the results from the statistical analysis of the data collected by Julia Holden to investigate the relationship between boldness of pigeons to their melanin content and their urbanization level. Primary analysis shows that Urbanism plays a significant role in influencing boldness. Secondary analysis considered if there were differences between the means and variances between groups of pigeons classified by Urbanism and Pattern.  
+
+\newpage
+
+#Summary 
+<br>  Before any analysis was done, the data was investigated by looking at several tables of counts, and some plots to get an initial idea of data. A linear additive model was first fitted to the data. Upon checking the qqplot for the residuals, it was obvious that it was not normal and hence wasn't a good fit to the data. A square root transformation was then applied to Distance. The qqplot seems to be alot closer to normal than previously. Even so, it failed the Shapiro Wilks test of normality (p=0.002) but satisfies the constant variance assumption . The dfbeta was also checked to determine which points would be influential when removed. This is due to the fact that there were a few outliers which might be affecting the data and they were under consideration to be dropped at one point.   
+\newline
+<br>  A weighted least squares(WLS) was then fitted to the model after Allan's suggestion. After some diasnostics, WLS was unecessary as variance was constant from the beginning and it does not help with normality. A global F-test was also performed to investigate is there was a difference in means from the 8 groups. The test shows that there might be a differnce in means between the 8 groups. A follow up test (Tukey) was considered but not implemented.
+\newline
+<br><br>  After further discussion, a GLM Gamma model was then introduced to fit the data as the residuals were skewed and the gamma distribution is flexible enough to fit the data. Furthermore, Distance of 0's were changed to 0.001 as to fit the requirements of the Gamma distribution which only takes non-zero positive values. After checking diagnostics, the glm gamma model with identity link was found to fit the data very well. This was shown by the qqplot of the residuals and constant variance. Next, two models were fitted and compared. The additive model of Urbanism and Pattern was the same as the model which included the interaction term with AICs of 1930 and 1935 respectively. 
+\newline
+<br><br>  To test the equal variances between the groups, Levene's test was used. It is suitable in this case because Levene's test is less sensitive to departures from normality. An attempt to calculate post-hoc power was unsuccessful at first as there was no effect size. A written power function via simulation was then used to determine power. In addition, the False Discovery rate was used to adjust for the p-values and the null rejected at 5%. This is to quantify the proportion of significant tests which are false positives. Bonferroni was not used as it will decrease the power of the already low powered study.
+
+\newline
+```{r}
+#all empty spots "NA", strip,white removes all extra space 
+data<-read.csv("Pigeon.csv",header=T,na.strings=c(""),strip.white=TRUE)
+require(car)
+require(MASS)
+require(boot)
+require(ggplot2)
+
+#Renaming Distance.inches
+names(data)[names(data)=="Distance..in."] <- "Distance.inches"
+
+#Checking counts
+with(data,addmargins(table(Urbanism,Pattern)))#counts in each group
+with(data, tapply(Distance.inches == 0 , list(Urbanism, Pattern), sum))#check how many distances were 0
+
+#changing to factors
+data$Pattern<-factor(data$Pattern)
+
+
+```
+
+
+
+```{r}
+#Plots
+
+#function used with ggplot. Customizes text size, colour, background, position of legend, and length of border from graph
+theme_303 <- function(size_base= 16, size_tit= 20, position_leg= "right", border=c(0.25,0.25,0.25,0.25)) {
+  theme(
+    text =              element_text(size=size_base, colour="black"),
+    axis.line =         element_line(colour="black"),
+    axis.text =         element_text(size=size_base, colour="gray40"),
+    axis.ticks =        element_line(colour="black"),
+    
+    legend.key =        element_blank(),
+    legend.position =   position_leg,
+    
+    panel.background =  element_blank(),
+    panel.border =      element_blank(),
+    panel.grid.major.x= element_blank(),
+    panel.grid.major.y= element_line(colour="grey"),
+    panel.grid.minor =  element_blank(),
+    
+    plot.title =        element_text(size = size_tit, colour = "black"),
+    plot.margin =       unit(border, "cm")
+    # margin unit is (top, right, bottom, left)
+  )
+}
+
+
+
+a<-ggplot(data,aes(x= Urbanism , y= Distance.inches,colour=Pattern)) + geom_boxplot() + theme_303() + ggtitle("Boxplot of Distance vs Urbanism vs Pattern")
+a #looks like not much difference between Distance of each pattern
+
+
+
+b<-ggplot(data,aes(x= Urbanism , y= Distance.inches, fill=Urbanism)) + geom_boxplot() + theme_303() + scale_fill_manual(name = "Boxplot of Distance vs Urbanism", values = c("purple", "light blue"))
+b
+
+
+c<-with(data, interaction.plot(Urbanism,Pattern,Distance.inches,
+                               col=c("red", "blue","green","brown","black","grey"),
+                               main="Plot of Distance vs Pattern by Urbanism",
+                               xlab="Urbanism", ylab="Distance"))
+c
+
+#scatterplot
+fit0 <- lm(Distance.inches ~ Urbanism + Pattern,data)
+qqnorm(resid(fit0))
+qqline(data.frame(resid(fit0)))
+with(data,leveneTest(lm(Distance.inches ~ Urbanism *Pattern) ,center = median))
+
+#fitting square root transformation
+fit1 <- lm(I(Distance.inches^(1/2)) ~ Urbanism + Pattern ,data)
+plot(resid(fit1)) #scatterplot of residuals
+qqnorm(resid(fit1))
+qqline(data.frame(resid(fit1))); #makes data into column as qqline only accepts that
+#plot(fit1,which = 4)
+#plot(fit1,which=3)
+#plot(fit1,which=1)
+shapiro.test(fit1$residuals) # checking normality for square root transformation
+with(data,leveneTest(lm(I(Distance.inches^(1/2)) ~ Urbanism * Pattern) ,center = median)) #checking constant variance 
+
+```
+
+```{r}
+#fitting glm gamma
+
+#require(MASS) #A glm fit for a Gamma family correctly calculates the maximum likelihood estimate of the mean parameters but provides only a crude estimate of the dispersion parameter. This function takes the results of the glm fit and solves the maximum likelihood equation for the reciprocal of the dispersion parameter, which is usually called the shape (or exponent) parameter.
+
+distance <- data$Distance.inches
+distance[distance == 0] = 0.001
+model <- glm(distance ~ Urbanism + Pattern, family = Gamma(link='identity'), data = data)
+model2 <- glm(distance ~ Urbanism * Pattern, family = Gamma(link='identity'), data = data)
+shape <- gamma.shape(model)
+shape2 <- gamma.shape(model2)
+summary(model, dispersion = 1/shape$alpha)
+summary(model2, dispersion = 1/shape$alpha)
+anov <- anova(model, test = "LRT")
+anov
+
+#disgnostics for glm gamma
+diag <- glm.diag(model)
+glm.diag.plots(model,diag)
+
+#interpretation here is that distance(predicted value) is mean of distance depending on which urbanism and pattern
+```
+
+
+
+
+```{r}
+#Levene's test
+#require(car)
+with(data,leveneTest(Distance.inches , Pattern ,center = median)[1,3])
+with(data,leveneTest(Distance.inches , Urbanism ,center = median)[1,3])
+with(data,leveneTest(lm(Distance.inches ~ Urbanism *Pattern) ,center = median)[1,3])
+#since data skewed, better to use median
+```
+
+
+```{r}
+#power function by Zhenhua
+
+#calculate power
+cal.power <- function(fit,data,nsimu=500,n=200,eff.size.scale=1.00,size=0.05)
+{
+    beta <- fit$coefficients
+    beta[3:5] <- beta[3:5]*eff.size.scale
+    subdata <- data[,c('Urbanism','Pattern','Distance.inches')]
+    A <- model.matrix(Distance.inches~Urbanism+Pattern,subdata)
+    A <- A[,1:4]
+    rej <- rep(0,nsimu)
+    shape <- gamma.shape(fit)
+    for(j in 1:nsimu)
+    {
+        # resample the covariates
+        idx <- sample(1:nrow(data),size=n,replace=TRUE)
+        X <- A[idx,] # resampled covariates
+        mu <- beta[1] + apply(matrix(beta[2:5],n,4,byrow=TRUE)*X,1,sum)
+        rate <- shape$alpha/mu
+        Y <- rgamma(n,shape$alpha,rate)
+        dat <- cbind(subdata[idx,1:2],Y)
+        colnames(dat)<- c('Urbanism','Pattern','Distance.inches')
+        fit.new <-  glm(Distance.inches ~ Urbanism + Pattern, dat, family=Gamma(link='identity'),start=beta)
+        p.val <- anova(fit.new,test='LRT')$`Pr(>Chi)`[3]
+        rej[j] <- ifelse(p.val <= 0.05,1,0)
+    }
+    mean(rej)
+}
+cal.power(model,data,eff.size.scale=1)
+
+```
+
+```{r}
+#extract all pvalues from levenes test and glm
+pvals <- c(anov[2:3,5], with(data,leveneTest(Distance.inches , Pattern ,center = median)[1,3]),
+with(data,leveneTest(Distance.inches , Urbanism ,center = median)[1,3]),
+with(data,leveneTest(lm(Distance.inches ~ Urbanism *Pattern) ,center = median)[1,3]))
+
+
+#Fdr: Provided by Zhenhua 
+
+fdr <- function(pvalues,q=0.05,cV=1)
+{
+    # adapted from https://dl.dropboxusercontent.com/u/2785709/brainder/2011/fdr/fdr.m
+    
+    m <- length(pvalues)
+    cV <- ifelse(cV==0,yes=sum(1/(1:m)),no=cV)
+    sorted <- sort(pvalues,index.return=TRUE)
+    pvalues <- sorted$x
+    oidx <- sorted$ix
+    
+    idx <- 1:m
+    
+    ################# THRESHOLD  ###############
+    thr.line <- idx * q / (m * cV)
+    under.line <- pvalues <= thr.line
+    
+    # special cases
+    if(all(!under.line)) thr <- 0
+    else
+    {
+        thr <- max(pvalues[under.line])
+        if(thr == 0) thr <- max(thr.line[under.line])
+    } 
+    
+    ################  Corrected  ################
+    pcor <- pvalues * m * cV / idx
+    oidxR <- sort(oidx,index.return=TRUE)$ix
+    
+    ################  Adjusted   ################
+    padj <- rep(0,m)
+    prev <- 1
+    for(i in m:1)
+    {
+        # The p-adjusted for the current p-value is the smallest slope among
+        # all the slopes of each of the p-values larger than the current one
+        # Yekutieli & Benjamini (1999), Eq (3).
+        padj[i] <- min(prev,pvalues[i]*m*cV/i)
+        prev <- padj[i]
+    }
+    
+    list(threshold=thr,p.corrected=pcor[oidxR],p.adjusted=padj[oidxR])
+}
+
+fdr(pvals,q=0.05,cV=1)
+```
